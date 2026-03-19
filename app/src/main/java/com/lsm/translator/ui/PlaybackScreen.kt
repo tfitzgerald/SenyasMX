@@ -153,6 +153,9 @@ private fun VideoPlayerCard(
     onRateChange: (Float) -> Unit,
     onReplay:     () -> Unit
 ) {
+    // hasError is tracked OUTSIDE AndroidView so Compose can react to it
+    var hasError by remember(videoUri) { mutableStateOf(false) }
+
     Card(
         modifier  = Modifier
             .fillMaxWidth()
@@ -161,38 +164,17 @@ private fun VideoPlayerCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column {
-            // Video area
+
+            // ── Video area ─────────────────────────────────────────────────
             Box(
                 modifier         = Modifier
                     .fillMaxWidth()
-                    .height(200.dp)
+                    .height(220.dp)
                     .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                var videoReady by remember(videoUri) { mutableStateOf(false) }
-
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory  = { ctx ->
-                        VideoView(ctx).apply {
-                            setVideoURI(Uri.parse(videoUri))
-                            setOnPreparedListener { mp ->
-                                videoReady = true
-                                try {
-                                    mp.playbackParams = mp.playbackParams.setSpeed(playbackRate)
-                                } catch (_: Exception) { /* some devices don't support setSpeed */ }
-                                start()
-                            }
-                            setOnErrorListener { _, _, _ ->
-                                videoReady = false
-                                true
-                            }
-                        }
-                    }
-                )
-
-                // Placeholder shown when video file is missing
-                if (!videoReady) {
+                if (hasError) {
+                    // Only shown when the video file is genuinely missing
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -209,10 +191,40 @@ private fun VideoPlayerCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                } else {
+                    // VideoView fills the box and starts playing as soon as
+                    // the media is prepared — no overlay blocks it
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory  = { ctx ->
+                            VideoView(ctx).apply {
+                                setVideoURI(Uri.parse(videoUri))
+                                setOnPreparedListener { mp ->
+                                    try {
+                                        mp.playbackParams =
+                                            mp.playbackParams.setSpeed(playbackRate)
+                                    } catch (_: Exception) {}
+                                    start()
+                                }
+                                setOnErrorListener { _, _, _ ->
+                                    hasError = true   // triggers recompose → shows placeholder
+                                    true
+                                }
+                            }
+                        },
+                        update = { videoView ->
+                            // Called when playbackRate chip is tapped
+                            if (videoView.isPlaying) {
+                                try {
+                                    videoView.setPlaybackSpeed(playbackRate)
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    )
                 }
             }
 
-            // Controls row
+            // ── Controls row ───────────────────────────────────────────────
             Row(
                 modifier              = Modifier
                     .fillMaxWidth()
