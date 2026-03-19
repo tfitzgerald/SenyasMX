@@ -1,7 +1,6 @@
 package com.lsm.translator.ui
 
 import android.net.Uri
-import android.widget.MediaController
 import android.widget.VideoView
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -43,7 +42,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -62,22 +60,22 @@ fun PlaybackScreen(
 
         // ── Search bar ─────────────────────────────────────────────────────
         OutlinedTextField(
-            value           = state.searchQuery,
-            onValueChange   = vm::onSearchQueryChanged,
-            modifier        = Modifier
+            value         = state.searchQuery,
+            onValueChange = vm::onSearchQueryChanged,
+            modifier      = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            placeholder     = { Text("Buscar frases en español…") },
-            leadingIcon     = { Icon(Icons.Filled.Search, contentDescription = null) },
-            trailingIcon    = {
+            placeholder   = { Text("Buscar frases en español…") },
+            leadingIcon   = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon  = {
                 if (state.searchQuery.isNotEmpty()) {
                     IconButton(onClick = { vm.onSearchQueryChanged("") }) {
                         Icon(Icons.Filled.Clear, contentDescription = "Borrar búsqueda")
                     }
                 }
             },
-            singleLine      = true,
-            shape           = RoundedCornerShape(12.dp)
+            singleLine    = true,
+            shape         = RoundedCornerShape(12.dp)
         )
 
         // ── Category filter chips ──────────────────────────────────────────
@@ -104,11 +102,11 @@ fun PlaybackScreen(
         // ── Video player card (appears when a phrase is selected) ──────────
         state.selectedPhrase?.let { phrase ->
             VideoPlayerCard(
-                videoUri       = vm.videoUri(phrase),
-                phraseLabel    = phrase.spanish,
-                playbackRate   = state.playbackRate,
-                onRateChange   = vm::onPlaybackRateChanged,
-                onReplay       = { vm.onPhraseSelected(phrase) }
+                videoUri     = vm.videoUri(phrase),
+                phraseLabel  = phrase.spanish,
+                playbackRate = state.playbackRate,
+                onRateChange = vm::onPlaybackRateChanged,
+                onReplay     = { vm.onPhraseSelected(phrase) }
             )
         }
 
@@ -153,7 +151,8 @@ private fun VideoPlayerCard(
     onRateChange: (Float) -> Unit,
     onReplay:     () -> Unit
 ) {
-    // hasError is tracked OUTSIDE AndroidView so Compose can react to it
+    // hasError is tracked outside AndroidView so Compose can react to it.
+    // On each new videoUri (new phrase selected) this resets to false.
     var hasError by remember(videoUri) { mutableStateOf(false) }
 
     Card(
@@ -174,7 +173,7 @@ private fun VideoPlayerCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (hasError) {
-                    // Only shown when the video file is genuinely missing
+                    // Shown only when the video file is genuinely missing
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -192,35 +191,35 @@ private fun VideoPlayerCard(
                         )
                     }
                 } else {
-                    // VideoView fills the box and starts playing as soon as
-                    // the media is prepared — no overlay blocks it
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory  = { ctx ->
-                            VideoView(ctx).apply {
-                                setVideoURI(Uri.parse(videoUri))
-                                setOnPreparedListener { mp ->
-                                    try {
-                                        mp.playbackParams =
-                                            mp.playbackParams.setSpeed(playbackRate)
-                                    } catch (_: Exception) {}
-                                    start()
-                                }
-                                setOnErrorListener { _, _, _ ->
-                                    hasError = true   // triggers recompose → shows placeholder
-                                    true
+                    // VideoView fills the entire box with nothing drawn on top.
+                    // Speed is applied inside setOnPreparedListener via MediaPlayer.
+                    // The key(videoUri) forces AndroidView to recreate when the
+                    // selected phrase changes so the new video loads fresh.
+                    key(videoUri) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory  = { ctx ->
+                                VideoView(ctx).apply {
+                                    setVideoURI(Uri.parse(videoUri))
+                                    setOnPreparedListener { mp ->
+                                        try {
+                                            mp.playbackParams =
+                                                mp.playbackParams.setSpeed(playbackRate)
+                                        } catch (_: Exception) {
+                                            // setSpeed not supported on all devices — ignore
+                                        }
+                                        start()
+                                    }
+                                    setOnErrorListener { _, _, _ ->
+                                        // Setting hasError = true triggers recompose
+                                        // which replaces the VideoView with the placeholder
+                                        hasError = true
+                                        true
+                                    }
                                 }
                             }
-                        },
-                        update = { videoView ->
-                            // Called when playbackRate chip is tapped
-                            if (videoView.isPlaying) {
-                                try {
-                                    videoView.setPlaybackSpeed(playbackRate)
-                                } catch (_: Exception) {}
-                            }
-                        }
-                    )
+                        )
+                    }
                 }
             }
 
