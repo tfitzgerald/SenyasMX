@@ -1,7 +1,8 @@
 package com.lsm.translator.ui
 
-import android.net.Uri
-import android.widget.VideoView
+import android.media.MediaPlayer
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -99,10 +100,10 @@ fun PlaybackScreen(
             }
         }
 
-        // ── Video player card (appears when a phrase is selected) ──────────
+        // ── Video player card ──────────────────────────────────────────────
         state.selectedPhrase?.let { phrase ->
             VideoPlayerCard(
-                videoUri     = vm.videoUri(phrase),
+                assetPath    = "videos/${phrase.videoFile}",
                 phraseLabel  = phrase.spanish,
                 playbackRate = state.playbackRate,
                 onRateChange = vm::onPlaybackRateChanged,
@@ -145,14 +146,13 @@ fun PlaybackScreen(
 
 @Composable
 private fun VideoPlayerCard(
-    videoUri:     String,
+    assetPath:    String,
     phraseLabel:  String,
     playbackRate: Float,
     onRateChange: (Float) -> Unit,
     onReplay:     () -> Unit
 ) {
-    // hasError resets to false each time videoUri changes (new phrase selected)
-    var hasError by remember(videoUri) { mutableStateOf(false) }
+    var hasError by remember(assetPath) { mutableStateOf(false) }
 
     Card(
         modifier  = Modifier
@@ -162,8 +162,6 @@ private fun VideoPlayerCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column {
-
-            // ── Video area ─────────────────────────────────────────────────
             Box(
                 modifier         = Modifier
                     .fillMaxWidth()
@@ -172,7 +170,7 @@ private fun VideoPlayerCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (hasError) {
-                    // Only shown when the video file is genuinely missing
+                    // Placeholder — only shown when the video file is missing
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -190,26 +188,65 @@ private fun VideoPlayerCard(
                         )
                     }
                 } else {
-                    // AndroidView: factory creates the VideoView once.
-                    // update block runs whenever videoUri or playbackRate changes,
-                    // reloading the video without recreating the whole view.
+                    // SurfaceView + MediaPlayer is the correct way to play
+                    // bundled asset videos on Android.
+                    // VideoView internally uses the same approach but its URI
+                    // loading blocks access to the assets:// scheme.
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
-                        factory  = { ctx -> VideoView(ctx) },
-                        update   = { videoView ->
-                            videoView.setVideoURI(Uri.parse(videoUri))
-                            videoView.setOnPreparedListener { mp ->
-                                try {
-                                    mp.playbackParams =
-                                        mp.playbackParams.setSpeed(playbackRate)
-                                } catch (_: Exception) {
-                                    // setSpeed not supported on all devices
-                                }
-                                mp.start()
-                            }
-                            videoView.setOnErrorListener { _, _, _ ->
-                                hasError = true
-                                true
+                        factory  = { ctx ->
+                            SurfaceView(ctx).also { surfaceView ->
+                                surfaceView.holder.addCallback(
+                                    object : SurfaceHolder.Callback {
+                                        private var player: MediaPlayer? = null
+
+                                        override fun surfaceCreated(
+                                            holder: SurfaceHolder
+                                        ) {
+                                            try {
+                                                val afd = ctx.assets.openFd(assetPath)
+                                                player = MediaPlayer().apply {
+                                                    setDataSource(
+                                                        afd.fileDescriptor,
+                                                        afd.startOffset,
+                                                        afd.length
+                                                    )
+                                                    afd.close()
+                                                    setDisplay(holder)
+                                                    setOnPreparedListener { mp ->
+                                                        try {
+                                                            mp.playbackParams =
+                                                                mp.playbackParams
+                                                                    .setSpeed(playbackRate)
+                                                        } catch (_: Exception) {}
+                                                        mp.start()
+                                                    }
+                                                    setOnErrorListener { _, _, _ ->
+                                                        hasError = true
+                                                        true
+                                                    }
+                                                    prepareAsync()
+                                                }
+                                            } catch (_: Exception) {
+                                                hasError = true
+                                            }
+                                        }
+
+                                        override fun surfaceChanged(
+                                            holder: SurfaceHolder,
+                                            format: Int,
+                                            width:  Int,
+                                            height: Int
+                                        ) {}
+
+                                        override fun surfaceDestroyed(
+                                            holder: SurfaceHolder
+                                        ) {
+                                            player?.release()
+                                            player = null
+                                        }
+                                    }
+                                )
                             }
                         }
                     )
@@ -231,7 +268,6 @@ private fun VideoPlayerCard(
                     modifier   = Modifier.weight(1f)
                 )
 
-                // Replay button
                 IconButton(onClick = onReplay) {
                     Icon(
                         Icons.Filled.Replay,
@@ -240,7 +276,6 @@ private fun VideoPlayerCard(
                     )
                 }
 
-                // Speed chips
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf(0.5f, 1.0f, 1.5f).forEach { rate ->
                         FilterChip(
