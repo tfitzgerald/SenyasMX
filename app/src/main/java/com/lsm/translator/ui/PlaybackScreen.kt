@@ -170,7 +170,6 @@ private fun VideoPlayerCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (hasError) {
-                    // Placeholder — only shown when the video file is missing
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -178,8 +177,8 @@ private fun VideoPlayerCard(
                         Icon(
                             Icons.Filled.VideoLibrary,
                             contentDescription = null,
-                            modifier           = Modifier.size(48.dp),
-                            tint               = MaterialTheme.colorScheme.onSurfaceVariant
+                            modifier = Modifier.size(48.dp),
+                            tint     = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
                             "Video próximamente",
@@ -188,66 +187,24 @@ private fun VideoPlayerCard(
                         )
                     }
                 } else {
-                    // SurfaceView + MediaPlayer is the correct way to play
-                    // bundled asset videos on Android.
-                    // VideoView internally uses the same approach but its URI
-                    // loading blocks access to the assets:// scheme.
+                    // The AndroidView is stable (never recreated). The update
+                    // block receives the latest assetPath on every recompose
+                    // and calls playAsset() to load the new video into the
+                    // existing SurfaceView + MediaPlayer.
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory  = { ctx ->
-                            SurfaceView(ctx).also { surfaceView ->
-                                surfaceView.holder.addCallback(
-                                    object : SurfaceHolder.Callback {
-                                        private var player: MediaPlayer? = null
-
-                                        override fun surfaceCreated(
-                                            holder: SurfaceHolder
-                                        ) {
-                                            try {
-                                                val afd = ctx.assets.openFd(assetPath)
-                                                player = MediaPlayer().apply {
-                                                    setDataSource(
-                                                        afd.fileDescriptor,
-                                                        afd.startOffset,
-                                                        afd.length
-                                                    )
-                                                    afd.close()
-                                                    setDisplay(holder)
-                                                    setOnPreparedListener { mp ->
-                                                        try {
-                                                            mp.playbackParams =
-                                                                mp.playbackParams
-                                                                    .setSpeed(playbackRate)
-                                                        } catch (_: Exception) {}
-                                                        mp.start()
-                                                    }
-                                                    setOnErrorListener { _, _, _ ->
-                                                        hasError = true
-                                                        true
-                                                    }
-                                                    prepareAsync()
-                                                }
-                                            } catch (_: Exception) {
-                                                hasError = true
-                                            }
-                                        }
-
-                                        override fun surfaceChanged(
-                                            holder: SurfaceHolder,
-                                            format: Int,
-                                            width:  Int,
-                                            height: Int
-                                        ) {}
-
-                                        override fun surfaceDestroyed(
-                                            holder: SurfaceHolder
-                                        ) {
-                                            player?.release()
-                                            player = null
-                                        }
-                                    }
-                                )
-                            }
+                            val surfaceView = SurfaceView(ctx)
+                            val controller  = AssetVideoController(
+                                surfaceView  = surfaceView,
+                                onError      = { hasError = true }
+                            )
+                            surfaceView.tag = controller
+                            surfaceView
+                        },
+                        update = { surfaceView ->
+                            val controller = surfaceView.tag as? AssetVideoController
+                            controller?.playAsset(assetPath, playbackRate)
                         }
                     )
                 }
@@ -292,6 +249,85 @@ private fun VideoPlayerCard(
                 }
             }
         }
+    }
+}
+
+// ── Asset video controller ────────────────────────────────────────────────────
+//
+// Owns the MediaPlayer lifecycle and is stored in SurfaceView.tag so the
+// update block can call playAsset() each time the selected phrase changes.
+
+private class AssetVideoController(
+    private val surfaceView: SurfaceView,
+    private val onError:     () -> Unit
+) : SurfaceHolder.Callback {
+
+    private var player:           MediaPlayer? = null
+    private var pendingAssetPath: String?      = null
+    private var pendingRate:      Float        = 1.0f
+    private var surfaceReady:     Boolean      = false
+
+    init {
+        surfaceView.holder.addCallback(this)
+    }
+
+    /** Called by the AndroidView update block whenever assetPath or rate changes. */
+    fun playAsset(assetPath: String, rate: Float) {
+        pendingAssetPath = assetPath
+        pendingRate      = rate
+        if (surfaceReady) loadAndPlay()
+    }
+
+    private fun loadAndPlay() {
+        val path = pendingAssetPath ?: return
+
+        // Release the previous player cleanly before creating a new one
+        player?.apply {
+            if (isPlaying) stop()
+            reset()
+            release()
+        }
+        player = null
+
+        try {
+            val afd = surfaceView.context.assets.openFd(path)
+            player = MediaPlayer().apply {
+                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                afd.close()
+                setDisplay(surfaceView.holder)
+                setOnPreparedListener { mp ->
+                    try {
+                        mp.playbackParams = mp.playbackParams.setSpeed(pendingRate)
+                    } catch (_: Exception) {}
+                    mp.start()
+                }
+                setOnErrorListener { _, _, _ ->
+                    onError()
+                    true
+                }
+                prepareAsync()
+            }
+        } catch (_: Exception) {
+            onError()
+        }
+    }
+
+    // ── SurfaceHolder.Callback ────────────────────────────────────────────
+
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        surfaceReady = true
+        loadAndPlay()
+    }
+
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {}
+
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        surfaceReady = false
+        player?.apply {
+            if (isPlaying) stop()
+            release()
+        }
+        player = null
     }
 }
 
