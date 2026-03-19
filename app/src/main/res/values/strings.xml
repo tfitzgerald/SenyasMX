@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Señas MX</string>
+    <string name="tab_recognition">Señas → Texto</string>
+    <string name="tab_playback">Texto → Señas</string>
+    <string name="tab_history">Historial</string>
+    <string name="btn_start">Iniciar reconocimiento</string>
+    <string name="btn_stop">Detener</string>
+    <string name="camera_denied">Permiso de cámara denegado</string>
+    <string name="camera_denied_hint">Ve a Ajustes del dispositivo para habilitarlo.</string>
+    <string name="place_hands">Coloca tus manos aquí</string>
+    <string name="low_confidence_title">No estoy seguro</string>
+    <string name="low_confidence_hint">Intenta de nuevo</string>
+    <string name="low_light">Poca luz — busca mejor iluminación</string>
+    <string name="confidence_label">Confianza</string>
+    <string name="listen">Escuchar</string>
+    <string name="search_hint">Buscar frases en español…</string>
+    <string name="all_categories">Todas</string>
+    <string name="video_unavailable">Video próximamente</string>
+    <string name="replay">Repetir</string>
+    <string name="no_results">Sin resultados</string>
+    <string name="history_empty_title">Sin historial aún</string>
+    <string name="history_empty_body">Las frases reconocidas aparecerán aquí</string>
+    <string name="clear_all">Limpiar todo</string>
+</resources>
