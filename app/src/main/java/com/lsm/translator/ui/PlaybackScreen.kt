@@ -151,8 +151,7 @@ private fun VideoPlayerCard(
     onRateChange: (Float) -> Unit,
     onReplay:     () -> Unit
 ) {
-    // hasError is tracked outside AndroidView so Compose can react to it.
-    // On each new videoUri (new phrase selected) this resets to false.
+    // hasError resets to false each time videoUri changes (new phrase selected)
     var hasError by remember(videoUri) { mutableStateOf(false) }
 
     Card(
@@ -173,7 +172,7 @@ private fun VideoPlayerCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (hasError) {
-                    // Shown only when the video file is genuinely missing
+                    // Only shown when the video file is genuinely missing
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -191,35 +190,29 @@ private fun VideoPlayerCard(
                         )
                     }
                 } else {
-                    // VideoView fills the entire box with nothing drawn on top.
-                    // Speed is applied inside setOnPreparedListener via MediaPlayer.
-                    // The key(videoUri) forces AndroidView to recreate when the
-                    // selected phrase changes so the new video loads fresh.
-                    key(videoUri) {
-                        AndroidView(
-                            modifier = Modifier.fillMaxSize(),
-                            factory  = { ctx ->
-                                VideoView(ctx).apply {
-                                    setVideoURI(Uri.parse(videoUri))
-                                    setOnPreparedListener { mp ->
-                                        try {
-                                            mp.playbackParams =
-                                                mp.playbackParams.setSpeed(playbackRate)
-                                        } catch (_: Exception) {
-                                            // setSpeed not supported on all devices — ignore
-                                        }
-                                        start()
-                                    }
-                                    setOnErrorListener { _, _, _ ->
-                                        // Setting hasError = true triggers recompose
-                                        // which replaces the VideoView with the placeholder
-                                        hasError = true
-                                        true
-                                    }
+                    // AndroidView: factory creates the VideoView once.
+                    // update block runs whenever videoUri or playbackRate changes,
+                    // reloading the video without recreating the whole view.
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory  = { ctx -> VideoView(ctx) },
+                        update   = { videoView ->
+                            videoView.setVideoURI(Uri.parse(videoUri))
+                            videoView.setOnPreparedListener { mp ->
+                                try {
+                                    mp.playbackParams =
+                                        mp.playbackParams.setSpeed(playbackRate)
+                                } catch (_: Exception) {
+                                    // setSpeed not supported on all devices
                                 }
+                                mp.start()
                             }
-                        )
-                    }
+                            videoView.setOnErrorListener { _, _, _ ->
+                                hasError = true
+                                true
+                            }
+                        }
+                    )
                 }
             }
 
